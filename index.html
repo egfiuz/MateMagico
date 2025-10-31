@@ -1,0 +1,663 @@
+
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MateMago? - O Jogo da Geometria Mágica</title>
+    <!-- Tailwind CSS CDN for styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Incluindo KaTeX para renderizar fórmulas matemáticas em LaTeX -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.10/dist/katex.min.css" xintegrity="sha384-wnjB55U8jQ0W87g+sWk4p2w6k8L57tQkQ4vC2u9F3fG+4I7hL6yI4u/8B/9z3D0" crossorigin="anonymous">
+    <script src="https://cdn.jsdelivr.net/npm/katex@0.16.10/dist/katex.min.js" xintegrity="sha384-gB0M+z7c6M2W8qQ407o3Jz1Zg4J2/g+6b3N3P1M4f3+r9L7o8n+Q2g4k3Fj5+P4" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/katex@0.16.10/dist/contrib/auto-render.min.js" xintegrity="sha384-eO8g8v/Nf/3K5bW4pL/wHnJt5J6E7Fw/8E/3z2S/7sLwW1t/k75yNf2N1p/5B5E1O/8t9z/4Q7Y/8n+3J4/Q2xQ4" crossorigin="anonymous"></script>
+
+    <!-- Firebase Imports -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, addDoc, onSnapshot, collection, query, limit, serverTimestamp, setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // Global variables provided by the environment
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
+        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+
+        let db;
+        let auth;
+        let userId = 'anon_user';
+
+        // Set up Firebase initialization function
+        window.initFirebase = async () => {
+            if (Object.keys(firebaseConfig).length === 0) {
+                console.error("Firebase config is missing. Scoreboard will not function.");
+                return;
+            }
+
+            try {
+                // setLogLevel('debug'); // Uncomment for detailed Firebase logs
+                const app = initializeApp(firebaseConfig);
+                db = getFirestore(app);
+                auth = getAuth(app);
+                window.db = db; // Make DB accessible globally
+
+                if (initialAuthToken) {
+                    await signInWithCustomToken(auth, initialAuthToken);
+                } else {
+                    await signInAnonymously(auth);
+                }
+
+                onAuthStateChanged(auth, (user) => {
+                    if (user) {
+                        userId = user.uid;
+                        document.getElementById('user-id-display').textContent = `ID: ${userId.substring(0, 8)}...`;
+                        window.loadScores(); // Load scores once authenticated
+                    } else {
+                        // Keep 'anon_user' if signed out
+                    }
+                });
+
+            } catch (error) {
+                console.error("Erro ao inicializar Firebase:", error);
+            }
+        };
+
+        // --- Firestore Functions ---
+        window.saveScore = async (userName, finalScore) => {
+            if (!db) {
+                window.displayModal("Erro", "Banco de Dados indisponível. Seu score não foi salvo.");
+                return;
+            }
+
+            const scoresCollectionRef = collection(db, `artifacts/${appId}/public/data/mate_mago_scores`);
+
+            try {
+                await addDoc(scoresCollectionRef, {
+                    userId: userId,
+                    userName: userName,
+                    score: finalScore,
+                    timestamp: serverTimestamp()
+                });
+                console.log("Score salvo com sucesso!");
+                window.displayModal("Sucesso", "Seu Score foi registrado no Ranking Global!");
+            } catch (error) {
+                console.error("Erro ao salvar o score:", error);
+                window.displayModal("Erro", "Houve um problema ao salvar seu score. Tente novamente.");
+            }
+        };
+
+        window.loadScores = () => {
+            if (!db) {
+                console.error("DB not initialized for score loading.");
+                return;
+            }
+
+            const scoresCollectionRef = collection(db, `artifacts/${appId}/public/data/mate_mago_scores`);
+            // Query for the top 100 entries, sorted by timestamp (to fetch recent updates)
+            const q = query(scoresCollectionRef, limit(100));
+
+            onSnapshot(q, (snapshot) => {
+                let scores = [];
+                snapshot.forEach((doc) => {
+                    const data = doc.data();
+                    scores.push(data);
+                });
+
+                // Client-side sorting by score (descending)
+                scores.sort((a, b) => b.score - a.score || (b.timestamp?.seconds || 0) - (a.timestamp?.seconds || 0));
+
+                window.updateScoreboard(scores.slice(0, 10)); // Show top 10
+            }, (error) => {
+                console.error("Erro ao carregar o Scoreboard:", error);
+            });
+        };
+
+        // Initialize Firebase on load
+        document.addEventListener('DOMContentLoaded', window.initFirebase);
+    </script>
+
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@400;700&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;700&display=swap');
+
+        /* Custom Medieval/Fantasy Styles */
+        body {
+            font-family: 'Cinzel', serif;
+            background: #1e1e2d; /* Dark Blue/Purple background for fantasy */
+            color: #d8c39e; /* Aged paper/gold text color */
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .game-container {
+            width: 95%;
+            max-width: 700px;
+            min-height: 600px;
+            background: #36394c; /* Darker paper background */
+            border: 8px solid #8b4513; /* Rustic wood border */
+            border-radius: 12px;
+            box-shadow: 0 0 25px rgba(0, 0, 0, 0.5), inset 0 0 10px rgba(139, 69, 19, 0.7);
+            padding: 20px;
+            margin: 10px auto;
+        }
+
+        h1 {
+            font-size: 2.5rem;
+            text-shadow: 2px 2px 5px #000;
+            color: #ffcc00; /* Gold */
+        }
+
+        h2 {
+            font-family: 'Cinzel', serif;
+            font-size: 1.5rem;
+            color: #a0d468; /* Green for "Magic/Life" elements */
+        }
+
+        .btn-fantasy {
+            font-family: 'Cinzel', serif;
+            transition: all 0.2s;
+            box-shadow: 0 4px #4a4a4a;
+            transform: translateY(0);
+            text-shadow: 1px 1px 1px #000;
+        }
+
+        .btn-fantasy:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px #4a4a4a;
+        }
+
+        .btn-fantasy:active {
+            transform: translateY(2px);
+            box-shadow: 0 2px #4a4a4a;
+        }
+
+        .btn-green {
+            background-color: #5cb85c;
+            color: white;
+            box-shadow: 0 4px #3d793d;
+        }
+        .btn-green:hover { background-color: #6ed36e; }
+
+        .btn-red {
+            background-color: #d9534f;
+            color: white;
+            box-shadow: 0 4px #9e3633;
+        }
+        .btn-red:hover { background-color: #e66a66; }
+
+        .hud-bar {
+            border: 3px solid #000;
+            border-radius: 8px;
+            overflow: hidden;
+            background-color: #4a4a4a;
+        }
+
+        .hud-fill {
+            transition: width 0.5s ease-in-out;
+            background: linear-gradient(90deg, #ff0000 0%, #ff8c00 50%, #5cb85c 100%);
+        }
+
+        .question-box {
+            background: #2b2b3a;
+            border: 2px solid #5a5a70;
+            padding: 15px;
+            border-radius: 8px;
+            box-shadow: inset 0 0 5px rgba(0, 0, 0, 0.5);
+            min-height: 120px;
+        }
+
+        .math-input {
+            font-family: 'Roboto Mono', monospace;
+            background: #1e1e2d;
+            border: 2px solid #ffcc00;
+            color: #fff;
+            text-align: center;
+        }
+
+        .scoreboard-item:nth-child(1) { color: gold; font-weight: bold; font-size: 1.25rem; }
+        .scoreboard-item:nth-child(2) { color: silver; font-weight: bold; }
+        .scoreboard-item:nth-child(3) { color: #cd7f32; font-weight: bold; } /* Bronze */
+
+        /* Modal Styles */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.7);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+        }
+        .modal-content {
+            background: #36394c;
+            border: 4px solid #ffcc00;
+            padding: 30px;
+            border-radius: 10px;
+            text-align: center;
+            box-shadow: 0 0 20px rgba(255, 204, 0, 0.5);
+            max-width: 80%;
+        }
+
+    </style>
+</head>
+<body onload="window.initFirebase()">
+    <div class="game-container flex flex-col justify-between">
+        <header class="text-center mb-6">
+            <h1 class="uppercase tracking-widest">MateMago?</h1>
+            <p class="text-sm italic" id="user-id-display">ID do Jogador: Carregando...</p>
+        </header>
+
+        <!-- --- CENA 1: INTRODUÇÃO --- -->
+        <div id="intro-scene" class="scene">
+            <h2 class="text-center text-3xl mb-6 text-yellow-400">O Sonho do Arquiteto</h2>
+            <div class="text-lg text-center leading-relaxed bg-gray-700/50 p-6 rounded-lg border border-yellow-700">
+                <p class="mb-4">Um arquiteto estressado com suas plantas de casas fecha os olhos e adormece. Ele acorda em um mundo de fantasia!</p>
+                <p class="mb-8">Você foi enviado pelos deuses para derrotar um dragão que ameaça a vila. Primeiro, escolha sua vocação e confeccione seu equipamento resolvendo problemas de Geometria.</p>
+            </div>
+            <div class="mt-10 flex justify-center">
+                <button onclick="showScene('class-select-scene')" class="btn-fantasy btn-green px-8 py-3 rounded-lg text-xl uppercase">
+                    Iniciar Jornada
+                </button>
+            </div>
+        </div>
+
+        <!-- --- CENA 2: SELEÇÃO DE CLASSE --- -->
+        <div id="class-select-scene" class="scene hidden">
+            <h2 class="text-center text-2xl mb-6 text-yellow-400">ESCOLHA SEU CAMINHO</h2>
+            <p class="text-center mb-8">Escolha a classe que guiará sua jornada matemática!</p>
+            <div class="flex flex-col md:flex-row justify-around space-y-4 md:space-y-0 md:space-x-4">
+                <div class="text-center p-4 border-2 border-red-600 rounded-lg bg-gray-700/50 hover:bg-gray-600/70 transition">
+                    <h3 class="text-xl mb-2 text-red-400">⚔️ GUERREIRO</h3>
+                    <p class="text-sm italic">Defesa e Força. Confecciona Espada ($A=bh$) e Escudo ($A=\pi r^2$).</p>
+                    <button onclick="startGame('Guerreiro')" class="btn-fantasy btn-green px-6 py-2 mt-4 rounded-md">
+                        Selecionar Guerreiro
+                    </button>
+                </div>
+                <div class="text-center p-4 border-2 border-blue-600 rounded-lg bg-gray-700/50 hover:bg-gray-600/70 transition">
+                    <h3 class="text-xl mb-2 text-blue-400">✨ MAGO</h3>
+                    <p class="text-sm italic">Feitiços e Regeneração. Confecciona Chapéu ($A=\pi ab$) e Cajado ($A_{\text{cone}}$).</p>
+                    <button onclick="startGame('Mago')" class="btn-fantasy btn-green px-6 py-2 mt-4 rounded-md">
+                        Selecionar Mago
+                    </button>
+                </div>
+            </div>
+        </div>
+        
+        <!-- --- CENA 3: JOGO (QUESTÕES) --- -->
+        <div id="game-scene" class="scene hidden">
+            <!-- HUD -->
+            <div class="mb-4 flex justify-between items-center bg-gray-800 p-2 rounded-lg border border-yellow-700">
+                <div class="flex-1 mr-4">
+                    <!-- Elemento que estava causando erro. ID adicionado para acesso direto no JS -->
+                    <div id="life-progress-text" class="text-sm text-red-400">VIDA (Faltam 3 acertos para Nível FOGO)</div> 
+                    <div class="hud-bar h-4">
+                        <div id="life-bar" class="hud-fill h-full" style="width: 100%;"></div>
+                    </div>
+                </div>
+                <div class="text-right">
+                    <div class="text-sm">SCORE</div>
+                    <div id="score-display" class="text-2xl text-yellow-300 font-bold">0</div>
+                </div>
+            </div>
+
+            <h2 class="text-center text-xl mb-4 text-green-400" id="current-level-display">Nível: ÁGUA</h2>
+
+            <!-- Questão -->
+            <div class="question-box mb-6">
+                <p class="text-lg" id="question-text">Aguardando a questão...</p>
+                <!-- Onde a dica com LaTeX será renderizada -->
+                <div id="formula-hint" class="text-sm text-yellow-500 mt-2 p-2 bg-gray-700 rounded hidden"></div>
+            </div>
+
+            <!-- Input e Ações -->
+            <div id="input-area" class="flex flex-col items-center space-y-4">
+                <p class="text-center text-lg">Digite sua resposta mágica (Apenas o número final):</p>
+                <input type="number" id="answer-input" placeholder="Resposta Numérica" class="math-input p-3 w-full max-w-sm rounded-md text-xl">
+                <div class="flex flex-col sm:flex-row space-y-2 sm:space-y-0 sm:space-x-4">
+                    <button onclick="checkAnswer()" class="btn-fantasy btn-green px-6 py-3 rounded-md text-lg">
+                        <span class="text-2xl">🪄</span> Resolver Questão
+                    </button>
+                    <button onclick="showHint()" id="hint-button" class="btn-fantasy btn-red px-6 py-3 rounded-md text-lg">
+                        <span class="text-2xl">📜</span> Dica (-3 Pts)
+                    </button>
+                </div>
+                <p id="feedback-message" class="text-center text-xl mt-4 hidden"></p>
+            </div>
+        </div>
+
+        <!-- --- CENA 4: GAME OVER / FIM DE JOGO --- -->
+        <div id="game-over-scene" class="scene hidden text-center">
+            <h2 class="text-4xl text-red-500 mb-6 uppercase">A Jornada Terminou!</h2>
+            <p class="text-xl mb-4">Seu Score Final foi: <span id="final-score-display" class="text-yellow-300 font-bold">0</span></p>
+
+            <div class="my-6 p-4 bg-gray-700/50 rounded-lg">
+                <p class="mb-3">Digite seu nome de Mago/Guerreiro para o Ranking:</p>
+                <input type="text" id="player-name-input" placeholder="Seu Nickname" class="math-input p-2 w-full max-w-xs rounded-md mb-4" maxlength="15">
+                <button onclick="submitScore()" class="btn-fantasy btn-green px-6 py-2 rounded-md">
+                    Salvar Score
+                </button>
+            </div>
+
+            <div class="mt-4 flex flex-col sm:flex-row justify-center space-y-2 sm:space-y-0 sm:space-x-4">
+                <button onclick="window.location.reload()" class="btn-fantasy btn-green px-6 py-3 rounded-md text-lg">
+                    Recomeçar Aventura
+                </button>
+                <button onclick="showScene('score-scene')" class="btn-fantasy bg-blue-500 hover:bg-blue-600 text-white px-6 py-3 rounded-md text-lg">
+                    Ver Ranking Global
+                </button>
+            </div>
+        </div>
+
+        <!-- --- CENA 5: SCOREBOARD --- -->
+        <div id="score-scene" class="scene hidden">
+            <h2 class="text-center text-3xl mb-6 text-yellow-300 uppercase">Score Geral (Top 10)</h2>
+            <ol id="scoreboard-list" class="list-decimal list-inside space-y-2 text-lg p-4 bg-gray-700 rounded-lg shadow-inner">
+                <li class="text-center text-gray-400">Carregando scores...</li>
+            </ol>
+            <div class="mt-8 text-center">
+                <button onclick="showScene('intro-scene')" class="btn-fantasy btn-green px-6 py-3 rounded-md text-lg">
+                    Voltar ao Início
+                </button>
+            </div>
+        </div>
+        
+        <!-- --- MODAL CUSTOMIZADO (Em substituição ao alert/confirm) --- -->
+        <div id="custom-modal" class="modal-overlay hidden">
+            <div class="modal-content">
+                <h3 id="modal-title" class="text-2xl text-yellow-400 mb-4">Título</h3>
+                <p id="modal-message" class="text-lg mb-6">Mensagem</p>
+                <button onclick="hideModal()" class="btn-fantasy btn-green px-6 py-2 rounded-md">
+                    Entendido
+                </button>
+            </div>
+        </div>
+
+        <!-- Placeholder for scene content -->
+        <div class="flex-grow"></div>
+
+    </div>
+
+    <script>
+        // --- Game Data: Questões Baseadas nos PDFs ---
+        // Adicionei mais questões para simular o fluxo ÁGUA (4 questões), FOGO (4 questões) e RAIO (4 questões)
+        const QUESTOES_POR_NIVEL = {
+            'ÁGUA': [
+                // Nível ÁGUA: Área do Retângulo (Só Texto - 10 pts)
+                { id: 101, text: "Marcelo comprou um terreno retangular com 27m de comprimento e 12m de largura. Qual é a área? (m²)", answer: 324, points: 10, hint: "A Área do Retângulo é: $A = b \\times h$" },
+                // Nível ÁGUA: Área do Triângulo (Confeccionar Ponta da Espada)
+                { id: 102, text: "Calcule a área de um triângulo com base 8 cm e altura 6 cm. (cm²)", answer: 24, points: 10, hint: "A Área do Triângulo é: $A = \\frac{b \\times h}{2}$" },
+                // Nível ÁGUA: Perímetro do Retângulo
+                { id: 103, text: "Um campo de treinamento retangular tem 15m de largura e 25m de comprimento. Qual é o perímetro? (m)", answer: 80, points: 10, hint: "Perímetro é a soma de todos os lados: $P = 2b + 2h$" },
+                // Nível ÁGUA: Área do Círculo (Confeccionar Escudo, usando r=7)
+                { id: 104, text: "Um escudo circular tem raio de 7 metros. Use $\\pi \\approx 3$ para calcular a área aproximada. (m²)", answer: 147, points: 10, hint: "A Área do Círculo é: $A = \\pi \\cdot r^{2}$" },
+            ],
+            'FOGO': [
+                // Nível FOGO: Área do Retângulo para Lado do Quadrado (Quadrados/Raízes - 15 pts)
+                { id: 201, text: "O terreno de Marcelo (Área: 324 m²) tem a mesma área do terreno quadrado de Tatiane. Qual é a medida do lado do quadrado? (m)", answer: 18, points: 15, hint: "Área do Quadrado é $A = l^2$. Encontre a raiz quadrada de 324." },
+                // Nível FOGO: Área do Trapézio (Questão Mack-SP - adaptada)
+                { id: 202, text: "Um canteiro trapézio-retângulo tem bases de 5m e 8m, com altura de 4m. Qual a área? (m²)", answer: 26, points: 15, hint: "Área do Trapézio: $A = \\frac{(B+b) \\cdot h}{2}$" },
+                // Nível FOGO: Área do Losango
+                { id: 203, text: "Uma jóia losangular tem diagonais de 10 cm e 8 cm. Qual a área? (cm²)", answer: 40, points: 15, hint: "Área do Losango: $A = \\frac{D \\times d}{2}$" },
+                // Nível FOGO: Área do Cilindro (Simples - use pi=3)
+                { id: 204, text: "Um pilar cilíndrico tem raio 3m e altura 5m. Use $\\pi \\approx 3$ para calcular a ÁREA LATERAL aproximada. (m²)", answer: 90, points: 15, hint: "Área Lateral do Cilindro: $A_{\\text{lateral}} = 2 \\pi r h$" },
+            ],
+            'RAIO': [
+                // Nível RAIO: Área Complexa (ENEM 2016 - Resolução da Quadrática)
+                { id: 301, text: "Figura B tem área de 144 m². Na Figura A (Retângulo), Largura é 'x' e Comprimento é 'x+7'. Se as áreas são iguais, qual é o valor da Largura (x)? (m)", answer: 9, points: 20, hint: "Resolva a equação $x(x+7) = 144$." },
+                // Nível RAIO: Pitágoras + Área do Triângulo
+                { id: 302, text: "Em um triângulo retângulo, hipotenusa mede 13 cm e um cateto mede 5 cm. Calcule a área desse triângulo. (cm²)", answer: 30, points: 20, hint: "Primeiro, use Pitágoras ($a^2 = b^2 + c^2$) para encontrar o outro cateto (altura), que é 12." },
+                // Nível RAIO: Área do Cone (Use pi=3, r=4, g=5)
+                { id: 303, text: "Um cone de magia tem raio 4m e geratriz 5m. Use $\\pi \\approx 3$ para calcular a ÁREA TOTAL aproximada. (m²)", answer: 108, points: 20, hint: "Área Total do Cone: $A_{\\text{total}} = \\pi r (g + r)$" },
+                // Nível RAIO: Área da Elipse (Confeccionar Chapéu, use pi=3)
+                { id: 304, text: "Um portal elíptico tem semi-eixos 'a' = 10m e 'b' = 5m. Use $\\pi \\approx 3$ para calcular a área aproximada. (m²)", answer: 150, points: 20, hint: "Área da Elipse: $A = \\pi a b$" },
+            ]
+        };
+        
+        // --- Game State & Variables ---
+        const game = {
+            playerClass: null,
+            score: 0,
+            life: 3,
+            questionsAnswered: 0,
+            userId: 'anon_user',
+            level: 'ÁGUA',
+            levelProgression: 0, // Contagem de acertos para mudar de nível
+            maxQuestions: 10, // Total de questões antes do Game Over (ou Batalha Final)
+            currentQuestion: null,
+            answeredQuestions: []
+        };
+
+        // --- Scene Management ---
+        function showScene(sceneId) {
+            document.querySelectorAll('.scene').forEach(scene => {
+                scene.classList.add('hidden');
+            });
+            document.getElementById(sceneId).classList.remove('hidden');
+        }
+        
+        // --- Custom Modal (Avoids native alerts) ---
+        window.displayModal = (title, message) => {
+            document.getElementById('modal-title').textContent = title;
+            document.getElementById('modal-message').textContent = message;
+            document.getElementById('custom-modal').classList.remove('hidden');
+        };
+
+        function hideModal() {
+            document.getElementById('custom-modal').classList.add('hidden');
+        }
+
+        // --- Game Initialization ---
+        function startGame(playerClass) {
+            game.playerClass = playerClass;
+            game.score = 0;
+            game.life = 3;
+            game.questionsAnswered = 0;
+            game.levelProgression = 0;
+            game.level = 'ÁGUA';
+            game.answeredQuestions = [];
+            
+            updateHUD();
+            showScene('game-scene');
+            loadQuestion();
+        }
+
+        // --- Question Loading ---
+        function loadQuestion() {
+            if (game.questionsAnswered >= game.maxQuestions) {
+                return gameOver();
+            }
+
+            // 1. Determina o Nível
+            let nextLevel = 'ÁGUA';
+            if (game.levelProgression >= 3) {
+                nextLevel = 'FOGO';
+            }
+            if (game.levelProgression >= 6) {
+                nextLevel = 'RAIO';
+            }
+            game.level = nextLevel;
+
+            // 2. Filtra questões disponíveis no nível atual que não foram respondidas
+            const availableQuestions = QUESTOES_POR_NIVEL[game.level].filter(
+                q => !game.answeredQuestions.includes(q.id)
+            );
+
+            if (availableQuestions.length === 0) {
+                // Se esgotou as questões do nível, reinicia o ciclo
+                const allLevelQuestions = QUESTOES_POR_NIVEL[game.level];
+                game.currentQuestion = allLevelQuestions[Math.floor(Math.random() * allLevelQuestions.length)];
+            } else {
+                // Seleciona uma questão aleatória entre as disponíveis
+                game.currentQuestion = availableQuestions[Math.floor(Math.random() * availableQuestions.length)];
+            }
+
+            // 3. Atualiza UI e Estado
+            const q = game.currentQuestion;
+            document.getElementById('question-text').textContent = q.text;
+            document.getElementById('current-level-display').textContent = `Nível: ${game.level} (${game.questionsAnswered} / ${game.maxQuestions} Questões)`;
+            document.getElementById('answer-input').value = '';
+            document.getElementById('feedback-message').classList.add('hidden');
+            document.getElementById('formula-hint').classList.add('hidden');
+            document.getElementById('formula-hint').innerHTML = q.hint; // KaTeX rendering will handle this
+            document.getElementById('hint-button').disabled = false;
+            
+            // ATUALIZAÇÃO CORRIGIDA: Usa o ID 'life-progress-text' recém-adicionado
+            document.getElementById('life-progress-text').textContent = `VIDA (${game.levelProgression} / ${game.level === 'RAIO' ? 9 : (game.level === 'FOGO' ? 6 : 3)} Acertos)`;
+
+            // Rerenderiza as fórmulas após a atualização do innerHTML
+            // NÓS FAREMOS A RENDERIZAÇÃO GLOBAL APENAS UMA VEZ NO DOMContentLoaded para evitar o erro.
+            // Para as dicas, é melhor garantir que o KaTeX seja renderizado.
+            if (window.renderMathInElement) {
+                window.renderMathInElement(document.getElementById('formula-hint'));
+            }
+            
+            updateHUD();
+        }
+
+        // --- HUD Update ---
+        function updateHUD() {
+            document.getElementById('life-bar').style.width = `${(game.life / 3) * 100}%`;
+            document.getElementById('score-display').textContent = game.score;
+        }
+
+        // --- Hint Logic ---
+        function showHint() {
+            const hintElement = document.getElementById('formula-hint');
+            if (!hintElement.classList.contains('hidden')) return; // Already shown
+
+            game.score = Math.max(0, game.score - 3); // Deduce 3 points
+            hintElement.classList.remove('hidden');
+            document.getElementById('hint-button').disabled = true;
+            updateHUD();
+            displayFeedback(`Perdeu 3 pontos, mas ganhou a dica da fórmula!`, 'text-yellow-400');
+        }
+
+        // --- Answer Check ---
+        function checkAnswer() {
+            const q = game.currentQuestion;
+            const userAnswer = parseFloat(document.getElementById('answer-input').value);
+
+            if (isNaN(userAnswer)) {
+                return displayFeedback("Digite um número válido para responder.", 'text-yellow-400');
+            }
+
+            if (userAnswer === q.answer) {
+                // Resposta Correta!
+                game.answeredQuestions.push(q.id);
+                game.questionsAnswered++;
+                game.levelProgression++;
+
+                let points = q.points;
+                let feedbackText = `ACERTOU! ${q.answer} é o valor correto.`;
+
+                if (!document.getElementById('formula-hint').classList.contains('hidden')) {
+                    points = Math.max(1, points - 3); // Pelo menos 1 ponto se usou dica
+                    feedbackText += ` (Score: ${points} pts, ajustado pela Dica)`;
+                } else {
+                    feedbackText += ` (Score: ${points} pts)`;
+                }
+
+                game.score += points;
+                
+                displayFeedback(`✨ ${feedbackText} ✨`, 'text-green-400');
+                
+                // Animação de acerto
+                const lifeBar = document.getElementById('life-bar');
+                lifeBar.classList.add('bg-green-500');
+                setTimeout(() => lifeBar.classList.remove('bg-green-500'), 500);
+
+                // Vai para a próxima questão
+                setTimeout(loadQuestion, 1500);
+
+            } else {
+                // Resposta Errada!
+                game.life -= 1;
+                displayFeedback(`💥 ERROU! Você levou DANO! Tente novamente. (${game.life} Vidas restantes)`, 'text-red-500');
+                
+                // Animação de dano
+                const lifeBar = document.getElementById('life-bar');
+                lifeBar.classList.add('bg-red-900');
+                setTimeout(() => lifeBar.classList.remove('bg-red-900'), 500);
+                
+                updateHUD();
+
+                if (game.life <= 0) {
+                    setTimeout(gameOver, 1500);
+                } else {
+                    // Limpa o feedback para que o usuário possa tentar novamente
+                    setTimeout(() => {
+                        document.getElementById('feedback-message').classList.add('hidden');
+                    }, 1500);
+                }
+            }
+        }
+
+        // --- Feedback ---
+        function displayFeedback(message, colorClass) {
+            const feedbackEl = document.getElementById('feedback-message');
+            feedbackEl.textContent = message;
+            feedbackEl.className = `text-center text-xl mt-4 ${colorClass} font-bold`;
+            feedbackEl.classList.remove('hidden');
+        }
+
+        // --- Game Over ---
+        function gameOver() {
+            document.getElementById('final-score-display').textContent = game.score;
+            document.getElementById('player-name-input').value = game.playerClass || 'Aventureiro'; 
+            showScene('game-over-scene');
+        }
+
+        // --- Scoreboard Submission ---
+        function submitScore() {
+            const userName = document.getElementById('player-name-input').value.trim();
+            if (userName.length < 3) {
+                return window.displayModal("Atenção", "O nome deve ter pelo menos 3 caracteres.");
+            }
+            if (window.saveScore) {
+                window.saveScore(userName, game.score);
+            }
+            showScene('score-scene');
+        }
+
+        // --- Scoreboard Update from Firebase ---
+        window.updateScoreboard = (scores) => {
+            const list = document.getElementById('scoreboard-list');
+            list.innerHTML = '';
+
+            if (scores.length === 0) {
+                list.innerHTML = '<li class="text-center text-gray-400">Nenhum score encontrado. Seja o primeiro!</li>';
+                return;
+            }
+
+            scores.forEach((s, index) => {
+                const li = document.createElement('li');
+                li.className = 'scoreboard-item border-b border-gray-600 pb-1 flex justify-between';
+                // Mostra apenas 8 caracteres do ID do usuário, conforme solicitado, para identificação
+                const userIdShort = s.userId ? s.userId.substring(0, 8) : 'Anônimo'; 
+                li.innerHTML = `
+                    <span>
+                        <span class="font-bold">${index + 1}.</span> ${s.userName} 
+                        <span class="text-xs text-gray-400">(${userIdShort})</span>
+                    </span> 
+                    <span class="text-yellow-300 font-extrabold">${s.score} pts</span>`;
+                list.appendChild(li);
+            });
+        };
+
+        // Ensure the initial scene is shown on load and perform global KaTeX render
+        document.addEventListener('DOMContentLoaded', () => {
+            showScene('intro-scene');
+            // Global render for all math expressions in the body
+            if (window.renderMathInElement) {
+                window.renderMathInElement(document.body);
+            }
+        });
+
+    </script>
+</body>
+</html>
